@@ -1,0 +1,29 @@
+services:
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:latest
+    environment:
+      MODEL_ID: nomic-ai/nomic-embed-text-v1.5
+      MAX_CLIENT_BATCH_SIZE: 64
+    ports:
+      - "8080:80"
+    volumes:
+      - ./volumes/hf_tei:/data
+    gpus: all
+    cpus: 10
+
+  proxy:
+    build:
+      context: ./
+    environment:
+      # Where the proxy calls for batch embedding
+      TEI_URL: http://tei:80
+      MAX_WAIT_TIME_MS: 16
+      MAX_BATCH_SIZE: 64
+      BATCH_CONCURRENCY: 8
+      QUEUE_CAP: 2048
+      BIND_ADDR: 0.0.0.0:3000
+    depends_on:
+      - tei
+    ports:
+      - "3000:3000"
+    cpus: 10
