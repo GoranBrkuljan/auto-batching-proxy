@@ -64,8 +64,7 @@ Response:
 
 ## Benchmark tool
 
-A tiny load generator is included (Rust). It can hit either the **proxy** or the **native** TEI endpoint to
-compare:
+A benchmark CLI that measures throughput, latency, and error rate against either the proxy or the native TEI endpoint.
 
 ```bash
 # Build & help

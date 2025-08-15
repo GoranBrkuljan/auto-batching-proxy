@@ -5,7 +5,7 @@ use reqwest::header::CONTENT_TYPE;
 use std::{
     sync::Arc,
     sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tokio::sync::Semaphore;
 
@@ -122,7 +122,6 @@ async fn main() {
     let mut lats = Arc::try_unwrap(lat_ptr).unwrap().into_inner();
     lats.sort_unstable();
 
-    let to_ms = |d: Duration| d.as_secs_f64() * 1e3;
     let pick = |pp: f64| lats[(lats.len() as f64 * pp).min(lats.len() as f64 - 1.0) as usize];
 
     println!("throughput: {:.1} req/s", total as f64 / elapsed.as_secs_f64());
@@ -131,7 +130,7 @@ async fn main() {
         successes.load(Ordering::Relaxed),
         failures.load(Ordering::Relaxed)
     );
-    println!("latency p50: {:.2} ms", to_ms(pick(0.50)));
-    println!("latency p95: {:.2} ms", to_ms(pick(0.95)));
-    println!("latency p99: {:.2} ms", to_ms(pick(0.99)));
+    println!("latency p50: {:.2} ms", pick(0.50).as_millis());
+    println!("latency p95: {:.2} ms", pick(0.95).as_millis());
+    println!("latency p99: {:.2} ms", pick(0.99).as_millis());
 }

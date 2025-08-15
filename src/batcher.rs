@@ -68,6 +68,7 @@ impl Batcher {
             while let Some(batch) = self.receive_batch().await {
                 self.send_batch(batch);
             }
+
             tracing::info!("batcher exiting: channel closed");
         });
     }
@@ -89,21 +90,24 @@ impl Batcher {
                     Err(TryRecvError::Disconnected) => return Some(batch),
                 }
             }
+
             if batch.len() == self.max_batch_size {
                 return Some(batch);
             }
 
             let now = Instant::now();
+            let remaining = deadline - now;
+
             if now >= deadline {
                 return Some(batch);
             }
-            let remaining = deadline - now;
 
             // Wait for more items or deadline. If multiple new items are present,
             // they will be processed in the next iteration. This way we can avoid busy-waiting.
             match tokio::time::timeout(remaining, self.rx.recv()).await {
                 Ok(Some(item)) => {
                     batch.push(item);
+
                     if batch.len() == self.max_batch_size {
                         return Some(batch);
                     }
@@ -118,7 +122,7 @@ impl Batcher {
     /// can immediately continue with subsequent items.
     fn send_batch(&mut self, batch: Vec<BatchItem>) {
         let client = self.client.clone();
-        let tei_url = self.tei_url.clone();
+        let embed_url = format!("{}/embed", self.tei_url);
         let inflight = self.inflight.clone();
 
         tokio::spawn(async move {
@@ -128,6 +132,7 @@ impl Batcher {
                     for item in batch {
                         let _ = item.resp.send(Err(ProxyError::ServiceShutdown));
                     }
+
                     tracing::warn!("service shutting down");
                     return;
                 }
@@ -137,17 +142,17 @@ impl Batcher {
             struct EmbReq<'a> {
                 inputs: Vec<&'a str>,
             }
+
             let req = EmbReq {
                 inputs: batch.iter().map(|b| b.input.as_str()).collect(),
             };
-            let url = format!("{}/embed", tei_url);
-
-            let resp = client.post(&url).json(&req).send().await;
+            let resp = client.post(embed_url).json(&req).send().await;
             let result: Result<Vec<Vec<f32>>, ProxyError> = match resp {
                 Ok(r) if r.status().is_success() => r.json().await.map_err(ProxyError::from),
                 Ok(r) => {
                     let code = r.status().as_u16();
                     let body = r.text().await.unwrap_or_default();
+
                     Err(ProxyError::Upstream { code, body })
                 }
                 Err(e) => Err(ProxyError::from(e)),
@@ -156,17 +161,21 @@ impl Batcher {
             match result {
                 Ok(embs) if embs.len() == batch.len() => {
                     let item_count = batch.len();
+
                     for (item, emb) in batch.into_iter().zip(embs) {
                         let _ = item.resp.send(Ok(emb));
                     }
+
                     tracing::info!(batch = %item_count, "flush_ok");
                 }
                 Ok(embs) => {
                     let got = embs.len();
                     let exp = batch.len();
+
                     for item in batch {
                         let _ = item.resp.send(Err(ProxyError::CountMismatch { expected: exp, got }));
                     }
+
                     tracing::error!("embedding count mismatch: got {got}, expected {exp}");
                 }
                 Err(e) => {
