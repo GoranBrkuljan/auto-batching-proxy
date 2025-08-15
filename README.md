@@ -22,9 +22,6 @@ concurrency).
 docker compose up --build
 ```
 
-* Proxy: [http://localhost:3000](http://localhost:3000)
-* TEI:   [http://localhost:8080](http://localhost:8080)
-
 ---
 
 ## Configuration (env)
@@ -34,12 +31,9 @@ docker compose up --build
 | `TEI_URL`           | TEI base URL (`http://tei:80`)           | **required**      |
 | `MAX_WAIT_TIME_MS`  | Max time to wait to fill a batch         | `8`               |
 | `MAX_BATCH_SIZE`    | Batch size cap per flush                 | `32`              |
-| `BATCH_CONCURRENCY` | # of concurrent upstream calls (permits) | `8`               |
+| `BATCH_CONCURRENCY` | # of concurrent upstream calls (permits) | `4`               |
 | `QUEUE_CAP`         | Bounded queue capacity (backpressure)    | `2048`            |
 | `BIND_ADDR`         | Proxy listen address                     | `0.0.0.0:3000`    |
-
-> Tip: Lower `MAX_WAIT_TIME_MS` for lower tail latency; raise `MAX_BATCH_SIZE`/`BATCH_CONCURRENCY` for throughput (as
-> long as TEI can handle it).
 
 ---
 
@@ -68,13 +62,9 @@ Response:
 { "embedding": [0.0123, -0.0456, ...] }
 ```
 
-> The proxy translates this to TEI’s `{ "inputs": ["..."] }` under the hood and fans out the result.
-
----
-
 ## Benchmark tool
 
-A tiny closed-loop load generator is included (Rust). It can hit either the **proxy** or the **native** TEI endpoint to
+A tiny load generator is included (Rust). It can hit either the **proxy** or the **native** TEI endpoint to
 compare:
 
 ```bash
@@ -97,13 +87,6 @@ cargo run --release --bin bench -- -r 20000 -c 2048 -s native
 cargo run --release --bin bench -- -r 20000 -c 2048 -s proxy
 ```
 
-* **throughput** – requests per second (closed-loop)
-* **successes / fail** – HTTP 2xx vs non-2xx / client errors
-* **latency p50/p95/p99** – end-to-end per request
-
-> The bench drains bodies to keep connections hot, uses a shared `reqwest::Client`, and bounds in-flight with a
-> semaphore (`-c`).
-
 ## Results
 
 ###### XPS laptop
@@ -122,7 +105,7 @@ cargo run --release --bin bench -- -r 20000 -c 2048 -s proxy
 ## How batching works
 
 * One accumulator task reads from a channel.
-* It **fast-drains** queued requests, then **awaits** “one more item **or** deadline” (whichever comes first).
+* It **fast-drains** queued requests, then **awaits** “more items **or** deadline” (whichever comes first).
 * When a batch is ready, it spawns a flush task; a **semaphore** bounds concurrent upstream TEI calls.
 * Each request gets a `oneshot` to deliver its result/error.
 
@@ -130,28 +113,8 @@ This pattern avoids busy-spins, keeps batches full under bursts, and flushes qui
 
 ---
 
-## Development
-
 ### Run tests
 
 ```bash
  TEI_URL=http://localhost:8080 cargo test
 ```
-
----
-
-## Troubleshooting
-
-* **503 / “overloaded / unavailable”**
-  Increase `QUEUE_CAP` or reduce `-c` in the bench. If TEI is slow, reduce `BATCH_CONCURRENCY` to avoid upstream
-  overload.
-
-* **High latency tails**
-  Lower `MAX_WAIT_TIME_MS`. If throughput drops too much, increase `MAX_BATCH_SIZE` and/or `BATCH_CONCURRENCY`
-  cautiously.
-
-* **TEI not reachable**
-  Check `TEI_URL`, network, container names (`tei`), and that TEI is listening on port `80` inside the container (
-  `8080:80` mapping).
-
----

@@ -17,9 +17,9 @@ services:
     environment:
       # Where the proxy calls for batch embedding
       TEI_URL: http://tei:80
-      MAX_WAIT_TIME_MS: 16
-      MAX_BATCH_SIZE: 64
-      BATCH_CONCURRENCY: 8
+      MAX_WAIT_TIME_MS: 8
+      MAX_BATCH_SIZE: 32
+      BATCH_CONCURRENCY: 4
       QUEUE_CAP: 2048
       BIND_ADDR: 0.0.0.0:3000
     depends_on:
